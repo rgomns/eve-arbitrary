@@ -8,7 +8,6 @@ from contextlib import asynccontextmanager
 import asyncio
 import pandas as pd
 
-from data.fetch_data import fetch_data
 # === CONFIG ===
 BROKER_FEE = 0.03
 SALES_TAX = 0.015
@@ -18,17 +17,9 @@ MIN_VOLUME = 100
 CACHE_MINUTES = 100
 HAULING_TIME_MINUTES = 15
 
-# === Lifespan Event Handler ===
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    loop = asyncio.get_event_loop()
-    loop.create_task(periodic_data_update())  # Run market updates in background
-
-    yield  # Allows requests while task runs
-    print("🛑 Shutting down background tasks")
 
 # === FastAPI Setup ===
-app = FastAPI(lifespan=lifespan)
+app = FastAPI()
 templates = Jinja2Templates(directory="templates")
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
@@ -113,17 +104,6 @@ def find_arbitrage(source_station=None, dest_station=None):
 
     return results
 
-# === Background Task for Auto Market Updates ===
-async def periodic_data_update():
-    while True:
-        print("🔄 Updating Market Data...")
-        await asyncio.to_thread(fetch_data)  # Ensure fetch_data() is imported correctly
-        await asyncio.sleep(1800)  # Wait 30 minutes
-
-
-
-
-
 # === API Endpoint: Render Trades ===
 @app.get("/")
 def render_results(request: Request,
@@ -132,12 +112,12 @@ def render_results(request: Request,
                    min_profit: int = Query(100000),
                    min_margin: float = Query(0.15),
                    sort_by: str = Query("total_profit"),
-                   security_filter: str = Query("all")):
+                   security_filter: str = Query("0")):
     
     results = find_arbitrage(source_station, dest_station)
 
     # Apply security level filter
-    if security_filter != "all":
+    if security_filter != "0":
         results = [r for r in results if r["source_station"]["security"] > security_filter]
 
     # Apply profit and margin filters

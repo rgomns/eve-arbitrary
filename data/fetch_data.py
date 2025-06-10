@@ -141,7 +141,7 @@ def fetch_all_orders(region_id):
     return orders
 
 # === Main execution ===
-def fetch_data():
+while True:
     print("🔍 Fetching all EVE region IDs from ESI...")
     try:
         region_ids = get_all_region_ids()
