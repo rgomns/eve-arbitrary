@@ -1,0 +1,156 @@
+from fastapi import FastAPI, Request, Query
+from pymongo import MongoClient
+from collections import defaultdict
+from datetime import datetime, timedelta
+from fastapi.templating import Jinja2Templates
+from fastapi.staticfiles import StaticFiles
+from contextlib import asynccontextmanager
+import asyncio
+import pandas as pd
+
+from data.fetch_data import fetch_data
+# === CONFIG ===
+BROKER_FEE = 0.03
+SALES_TAX = 0.015
+MIN_PROFIT = 100000
+MIN_MARGIN = 0.15
+MIN_VOLUME = 100
+CACHE_MINUTES = 100
+HAULING_TIME_MINUTES = 15
+
+# === Lifespan Event Handler ===
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    loop = asyncio.get_event_loop()
+    loop.create_task(periodic_data_update())  # Run market updates in background
+
+    yield  # Allows requests while task runs
+    print("🛑 Shutting down background tasks")
+
+# === FastAPI Setup ===
+app = FastAPI(lifespan=lifespan)
+templates = Jinja2Templates(directory="templates")
+app.mount("/static", StaticFiles(directory="static"), name="static")
+
+# === MongoDB Setup ===
+client = MongoClient("mongodb://localhost:27017/")
+db = client["eve_market"]
+orders_col = db["orders"]
+stations_col = db["stations"]
+items_col = db["items"]
+regions_col = db["regions"]
+
+# === Helper Functions ===
+def get_station_data(station_id):
+    cached = stations_col.find_one({"station_id": station_id})
+    return cached if cached else {"name": str(station_id), "security": "Unknown"}
+
+def get_item_name(type_id):
+    cached = items_col.find_one({"type_id": type_id})
+    return cached["name"] if cached else f"Type {type_id}"
+
+# === Unified Arbitrage Function ===
+def find_arbitrage(source_station=None, dest_station=None):
+    cutoff = datetime.utcnow() - timedelta(minutes=CACHE_MINUTES)
+
+    query = {"last_updated": {"$gte": cutoff}}
+    if source_station is not None:
+        query["location_id"] = source_station
+    if dest_station is not None:
+        query["location_id"] = dest_station
+
+    orders = list(orders_col.find(query))
+    if not orders:
+        return []  # Return an empty list if no data is available
+
+    sell_orders = [o for o in orders if not o["is_buy_order"]]
+    buy_orders = [o for o in orders if o["is_buy_order"]]
+
+    sell_by_type = defaultdict(list)
+    buy_by_type = defaultdict(list)
+
+    for o in sell_orders:
+        sell_by_type[o["type_id"]].append(o)
+    for o in buy_orders:
+        buy_by_type[o["type_id"]].append(o)
+
+    results = []
+    common_type_ids = set(sell_by_type.keys()) & set(buy_by_type.keys())
+
+    for type_id in common_type_ids:
+        try:
+            best_sell = min(sell_by_type[type_id], key=lambda x: x["price"])
+            best_buy = max(buy_by_type[type_id], key=lambda x: x["price"])
+
+            sell_price = best_sell["price"]
+            buy_price = best_buy["price"]
+            volume = min(best_sell["volume_remain"], best_buy["volume_remain"])
+
+            if volume < MIN_VOLUME:
+                continue
+
+            proceeds_per_unit = buy_price * (1 - BROKER_FEE - SALES_TAX)
+            unit_profit = proceeds_per_unit - sell_price
+            total_profit = unit_profit * volume
+            margin = unit_profit / sell_price
+            isk_per_minute = total_profit / HAULING_TIME_MINUTES
+
+            if total_profit > MIN_PROFIT and margin > MIN_MARGIN:
+                results.append({
+                    "item": get_item_name(type_id),
+                    "source_station": get_station_data(best_sell["location_id"]),
+                    "dest_station": get_station_data(best_buy["location_id"]),
+                    "buy_price": round(sell_price, 2),
+                    "sell_price": round(buy_price, 2),
+                    "volume": volume,
+                    "unit_profit": round(unit_profit, 2),
+                    "total_profit": round(total_profit, 2),
+                    "margin": f"{margin:.1%}",
+                    "isk_per_minute": round(isk_per_minute, 2),
+                })
+        except Exception as e:
+            print(f"Error processing item {type_id}: {e}")
+
+    return results
+
+# === Background Task for Auto Market Updates ===
+async def periodic_data_update():
+    while True:
+        print("🔄 Updating Market Data...")
+        await asyncio.to_thread(fetch_data)  # Ensure fetch_data() is imported correctly
+        await asyncio.sleep(1800)  # Wait 30 minutes
+
+
+
+
+
+# === API Endpoint: Render Trades ===
+@app.get("/")
+def render_results(request: Request,
+                   source_station: int | None = Query(None),
+                   dest_station: int | None = Query(None),
+                   min_profit: int = Query(100000),
+                   min_margin: float = Query(0.15),
+                   sort_by: str = Query("total_profit"),
+                   security_filter: str = Query("all")):
+    
+    results = find_arbitrage(source_station, dest_station)
+
+    # Apply security level filter
+    if security_filter != "all":
+        results = [r for r in results if r["source_station"]["security"] > security_filter]
+
+    # Apply profit and margin filters
+    results = [r for r in results if r["total_profit"] >= min_profit and float(r["margin"].strip('%'))/100 >= min_margin]
+
+    # Sort results
+    results.sort(key=lambda x: x[sort_by], reverse=True)
+
+    return templates.TemplateResponse("index.html", {"request": request, "trades": results})
+
+@app.get("/search_station/")
+def search_station(query: str):
+    query = query.lower()
+    stations = list(stations_col.find({"name": {"$regex": query, "$options": "i"}}, {"station_id": 1, "name": 1}))
+    
+    return [{"station_id": s["station_id"], "name": s["name"]} for s in stations]

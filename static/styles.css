@@ -1,0 +1,93 @@
+body {
+    background-color: #080B21;
+    color: #E0E0E0;
+    font-family: 'Orbitron', sans-serif;
+    text-align: center;
+    overflow: hidden;
+}
+
+h1 {
+    font-size: 34px;
+    margin-top: 20px;
+    text-transform: uppercase;
+    text-shadow: 0px 0px 10px #3D6EF7;
+}
+
+.wormhole-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100vw;
+    height: 100vh;
+    background-image: url('/static/wormhole-bg.gif');
+    opacity: 0.15;
+    z-index: -1;
+}
+
+form {
+    background: rgba(30, 30, 50, 0.9);
+    padding: 20px;
+    border-radius: 12px;
+    display: inline-block;
+    margin-bottom: 20px;
+    box-shadow: 0 0 15px #3D6EF7;
+}
+
+.filters {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+}
+
+input, select, button {
+    margin: 10px;
+    padding: 8px;
+    border-radius: 5px;
+    border: none;
+    background: rgba(0, 0, 30, 0.9);
+    color: white;
+}
+
+button {
+    background: #3D6EF7;
+    cursor: pointer;
+    transition: 0.3s ease;
+}
+
+button:hover {
+    background: #2856D9;
+    box-shadow: 0 0 8px #2856D9;
+}
+
+table {
+    width: 80%;
+    margin: 20px auto;
+    border-collapse: collapse;
+    background: rgba(20, 20, 40, 0.9);
+    box-shadow: 0 0 15px #3D6EF7;
+}
+
+th, td {
+    padding: 12px;
+    border: 1px solid #444;
+    text-align: center;
+}
+
+th {
+    background: #3D6EF7;
+    color: white;
+    cursor: pointer;
+    transition: 0.3s ease;
+}
+
+th:hover {
+    box-shadow: 0px 0px 8px white;
+}
+
+tr:nth-child(even) {
+    background: rgba(50, 50, 80, 0.7);
+}
+
+tr:hover {
+    background: rgba(70, 70, 120, 0.8);
+}

@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dark Wormhole Industries - Arbitrage</title>
+    <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+    <div class="wormhole-overlay"></div>
+
+    <h1>Dark Wormhole Industries - Arbitrage</h1>
+
+    <form method="get" action="/">
+        <div class="filters">
+            <label>Source Station:</label>
+            <input type="text" id="source_station_search" placeholder="Type station name...">
+            <select id="source_station_dropdown"></select>
+
+            <label>Destination Station:</label>
+            <input type="text" id="dest_station_search" placeholder="Type station name...">
+            <select id="dest_station_dropdown"></select>
+
+            <input type="number" name="min_profit" value="100000" placeholder="Min Profit (ISK)">
+            <input type="number" step="0.01" name="min_margin" value="0.15" placeholder="Min Margin (%)">
+            <select name="sort_by">
+                <option value="total_profit">Sort by Total Profit</option>
+                <option value="margin">Sort by Profit Margin</option>
+                <option value="isk_per_minute">Sort by ISK/min</option>
+            </select>
+            <select name="security_filter">
+                <option value="all">All Security Levels</option>
+                <option value="0.5">High Security</option>
+                <option value="0.1">Low Security</option>
+                <option value="0">Null Sec</option>
+            </select>
+            <button type="submit">Search</button>
+        </div>
+    </form>
+
+    {% if trades %}
+        <h2>Trade Opportunities</h2>
+        <table id="tradeTable">
+            <tr>
+                <th onclick="sortTable(0)">Item</th>
+                <th onclick="sortTable(1)">Buy From</th>
+                <th onclick="sortTable(2)">Sell To</th>
+                <th onclick="sortTable(3)">Buy Price</th>
+                <th onclick="sortTable(4)">Sell Price</th>
+                <th onclick="sortTable(5)">Volume</th>
+                <th onclick="sortTable(6)">Unit Profit</th>
+                <th onclick="sortTable(7)">Total Profit</th>
+                <th onclick="sortTable(8)">Margin</th>
+                <th onclick="sortTable(9)">ISK/min</th>
+            </tr>
+            {% for trade in trades %}
+            <tr>
+                <td>{{ trade.item }}</td>
+                <td>{{ trade.source_station.name }} ({{ trade.source_station.security }})</td>
+                <td>{{ trade.dest_station.name }} ({{ trade.dest_station.security }})</td>
+                <td>{{ trade.buy_price }}</td>
+                <td>{{ trade.sell_price }}</td>
+                <td>{{ trade.volume }}</td>
+                <td>{{ trade.unit_profit }}</td>
+                <td>{{ trade.total_profit }}</td>
+                <td>{{ trade.margin }}</td>
+                <td>{{ trade.isk_per_minute }}</td>
+            </tr>
+            {% endfor %}
+        </table>
+    {% else %}
+        <p>No profitable trades found.</p>
+    {% endif %}
+
+    <script src="/static/script.js"></script>
+</body>
+</html>
