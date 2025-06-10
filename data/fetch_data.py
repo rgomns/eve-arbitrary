@@ -21,23 +21,39 @@ stations_col.create_index("station_id", unique=True)
 items_col.create_index("type_id", unique=True)
 regions_col.create_index("region_id", unique=True)
 
-# === Helper functions ===
+def get_system_security(system_id):
+    url = f"https://esi.evetech.net/latest/universe/systems/{system_id}/"
+    r = requests.get(url)
+    if r.status_code == 200:
+        data = r.json()
+        return data.get("security_status", None)
+    return None
+
 def get_station_info(station_id):
     cached = stations_col.find_one({"station_id": station_id})
     if cached:
         return cached["name"], cached.get("security", None)
+    
     url = f"https://esi.evetech.net/latest/universe/stations/{station_id}/"
     r = requests.get(url)
     if r.status_code == 200:
         data = r.json()
         name = data.get("name", str(station_id))
-        security_level = data.get("security", None)
+        system_id = data.get("system_id", None)
+        
+        # Fetch system security level
+        security_level = None
+        if system_id:
+            security_level = get_system_security(system_id)
+        
         stations_col.update_one(
             {"station_id": station_id}, 
             {"$set": {"name": name, "security": security_level}}, 
             upsert=True
         )
+        
         return name, security_level
+    
     return str(station_id), None
 
 

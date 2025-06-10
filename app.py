@@ -5,16 +5,12 @@ from datetime import datetime, timedelta
 from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
 from contextlib import asynccontextmanager
-import asyncio
 import pandas as pd
-
+from typing import Optional 
 # === CONFIG ===
 BROKER_FEE = 0.03
 SALES_TAX = 0.015
-MIN_PROFIT = 100000
-MIN_MARGIN = 0.15
-MIN_VOLUME = 100
-CACHE_MINUTES = 100
+CACHE_MINUTES = 10000
 HAULING_TIME_MINUTES = 15
 
 
@@ -40,22 +36,35 @@ def get_item_name(type_id):
     cached = items_col.find_one({"type_id": type_id})
     return cached["name"] if cached else f"Type {type_id}"
 
-# === Unified Arbitrage Function ===
+# === Unified Arbitrage Function === 
 def find_arbitrage(source_station=None, dest_station=None):
     cutoff = datetime.utcnow() - timedelta(minutes=CACHE_MINUTES)
 
     query = {"last_updated": {"$gte": cutoff}}
-    if source_station is not None:
+    if source_station is not None and dest_station is not None:
+        query["$or"] = [
+            {"location_id": source_station},
+            {"location_id": dest_station}
+        ]
+    elif source_station is not None:
         query["location_id"] = source_station
-    if dest_station is not None:
+    elif dest_station is not None:
         query["location_id"] = dest_station
 
     orders = list(orders_col.find(query))
     if not orders:
         return []  # Return an empty list if no data is available
 
-    sell_orders = [o for o in orders if not o["is_buy_order"]]
-    buy_orders = [o for o in orders if o["is_buy_order"]]
+    sell_orders_query = {"is_buy_order": False, "last_updated": {"$gte": cutoff}}
+    buy_orders_query = {"is_buy_order": True, "last_updated": {"$gte": cutoff}}
+
+    if source_station:
+        sell_orders_query["location_id"] = source_station
+    if dest_station:
+        buy_orders_query["location_id"] = dest_station
+
+    sell_orders = list(orders_col.find(sell_orders_query))
+    buy_orders = list(orders_col.find(buy_orders_query))
 
     sell_by_type = defaultdict(list)
     buy_by_type = defaultdict(list)
@@ -77,48 +86,60 @@ def find_arbitrage(source_station=None, dest_station=None):
             buy_price = best_buy["price"]
             volume = min(best_sell["volume_remain"], best_buy["volume_remain"])
 
-            if volume < MIN_VOLUME:
-                continue
-
             proceeds_per_unit = buy_price * (1 - BROKER_FEE - SALES_TAX)
             unit_profit = proceeds_per_unit - sell_price
             total_profit = unit_profit * volume
             margin = unit_profit / sell_price
             isk_per_minute = total_profit / HAULING_TIME_MINUTES
 
-            if total_profit > MIN_PROFIT and margin > MIN_MARGIN:
-                results.append({
-                    "item": get_item_name(type_id),
-                    "source_station": get_station_data(best_sell["location_id"]),
-                    "dest_station": get_station_data(best_buy["location_id"]),
-                    "buy_price": round(sell_price, 2),
-                    "sell_price": round(buy_price, 2),
-                    "volume": volume,
-                    "unit_profit": round(unit_profit, 2),
-                    "total_profit": round(total_profit, 2),
-                    "margin": f"{margin:.1%}",
-                    "isk_per_minute": round(isk_per_minute, 2),
-                })
+            
+            results.append({
+                "item": get_item_name(type_id),
+                "source_station": get_station_data(best_sell["location_id"]),
+                "dest_station": get_station_data(best_buy["location_id"]),
+                "buy_price": round(sell_price, 2),
+                "sell_price": round(buy_price, 2),
+                "volume": volume,
+                "unit_profit": round(unit_profit, 2),
+                "total_profit": round(total_profit, 2),
+                "margin": f"{margin:.1%}",
+                "isk_per_minute": round(isk_per_minute, 2),
+            })
         except Exception as e:
             print(f"Error processing item {type_id}: {e}")
 
     return results
 
+
+def is_valid_security(security):
+    try:
+        return float(security)
+    except (ValueError, TypeError):
+        return None
+
 # === API Endpoint: Render Trades ===
 @app.get("/")
 def render_results(request: Request,
-                   source_station: int | None = Query(None),
-                   dest_station: int | None = Query(None),
-                   min_profit: int = Query(100000),
-                   min_margin: float = Query(0.15),
-                   sort_by: str = Query("total_profit"),
-                   security_filter: str = Query("0")):
+                    source_station: Optional[int] = Query(None),
+                    dest_station: Optional[str] = Query(None),
+                    min_profit: int = Query(100000),
+                    min_margin: float = Query(0.15),
+                    sort_by: str = Query("total_profit"),
+                    security_filter: float = Query(-1.0)):
     
     results = find_arbitrage(source_station, dest_station)
 
+    print(dest_station)
+
     # Apply security level filter
-    if security_filter != "0":
-        results = [r for r in results if r["source_station"]["security"] > security_filter]
+    if security_filter != 0:
+        filtered_results = []
+        for r in results:
+            sec = is_valid_security(r["source_station"].get("security"))
+            if sec is not None and sec > security_filter:
+                filtered_results.append(r)
+        results = filtered_results
+
 
     # Apply profit and margin filters
     results = [r for r in results if r["total_profit"] >= min_profit and float(r["margin"].strip('%'))/100 >= min_margin]
@@ -126,7 +147,7 @@ def render_results(request: Request,
     # Sort results
     results.sort(key=lambda x: x[sort_by], reverse=True)
 
-    return templates.TemplateResponse("index.html", {"request": request, "trades": results})
+    return templates.TemplateResponse("index.html", {"request": request, "trades": results[:100]})
 
 @app.get("/search_station/")
 def search_station(query: str):

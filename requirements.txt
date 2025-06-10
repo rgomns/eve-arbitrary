@@ -1,0 +1,6 @@
+fastapi
+pymongo
+requests
+pandas
+tqdm
+jinja2
