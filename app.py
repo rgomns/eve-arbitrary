@@ -30,7 +30,7 @@ regions_col = db["regions"]
 # === Helper Functions ===
 def get_station_data(station_id):
     cached = stations_col.find_one({"station_id": station_id})
-    return cached if cached else {"name": str(station_id), "security": "Unknown"}
+    return cached if cached else {"name": str(station_id), "security": 99}
 
 def get_item_name(type_id):
     cached = items_col.find_one({"type_id": type_id})
@@ -40,32 +40,18 @@ def get_item_name(type_id):
 def find_arbitrage(source_station=None, dest_station=None):
     cutoff = datetime.utcnow() - timedelta(minutes=CACHE_MINUTES)
 
-    query = {"last_updated": {"$gte": cutoff}}
-    if source_station is not None and dest_station is not None:
-        query["$or"] = [
-            {"location_id": source_station},
-            {"location_id": dest_station}
-        ]
-    elif source_station is not None:
-        query["location_id"] = source_station
-    elif dest_station is not None:
-        query["location_id"] = dest_station
-
-    orders = list(orders_col.find(query))
-    if not orders:
-        return []  # Return an empty list if no data is available
-
     sell_orders_query = {"is_buy_order": False, "last_updated": {"$gte": cutoff}}
     buy_orders_query = {"is_buy_order": True, "last_updated": {"$gte": cutoff}}
 
     if source_station:
-        sell_orders_query["location_id"] = source_station
+        sell_orders_query["location_id"] = int(source_station)
     if dest_station:
-        buy_orders_query["location_id"] = dest_station
+        buy_orders_query["location_id"] = int(dest_station)
+
 
     sell_orders = list(orders_col.find(sell_orders_query))
     buy_orders = list(orders_col.find(buy_orders_query))
-
+   
     sell_by_type = defaultdict(list)
     buy_by_type = defaultdict(list)
 
@@ -74,6 +60,7 @@ def find_arbitrage(source_station=None, dest_station=None):
     for o in buy_orders:
         buy_by_type[o["type_id"]].append(o)
 
+    
     results = []
     common_type_ids = set(sell_by_type.keys()) & set(buy_by_type.keys())
 
@@ -128,8 +115,6 @@ def render_results(request: Request,
                     security_filter: float = Query(-1.0)):
     
     results = find_arbitrage(source_station, dest_station)
-
-    print(dest_station)
 
     # Apply security level filter
     if security_filter != 0:
